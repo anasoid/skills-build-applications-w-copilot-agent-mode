@@ -30,20 +30,30 @@ OctoFit Tracker is a three-tier application for a school fitness program. The st
 
 Record your plan here before editing code.
 
-- Presentation tier decision:
-- Logic tier decision:
-- Data tier decision:
-- Activity tracking approach:
-- Team management approach:
-- Leaderboard approach:
-- Workout suggestions approach:
+- Presentation tier decision: Use React route components for each capability, with `src/api/client.ts` for every fetch and shared `CapabilityCard` rendering for loading, empty, success, and accessible error states.
+- Logic tier decision: Keep Express routes thin and put validation and business operations in `src/services/octofitService.ts`; services return model data or deliberate 4xx errors.
+- Data tier decision: Define required fields and defaults in Mongoose schemas, keep seed records stable through upserts, and never clear existing application data.
+- Activity tracking approach: Validate IDs and positive minutes, verify both referenced records exist, compute points from minutes, and store the creation timestamp.
+- Team management approach: Require a name and mascot, default members to an empty array, and validate submitted member IDs before creating the team.
+- Leaderboard approach: Aggregate activity points by team, include teams with zero points, sort by descending totals, break ties by team name, and assign 1-based ranks.
+- Workout suggestions approach: Find the matching user by normalized email, consider the user's most recent activity and fitness goal, match a workout by focus, and include a reason for the result.
 
 ## Test plan
 
 Record the commands you run and what each failure means.
 
 - Data-tier command: `npm run test:data --prefix octofit-tracker/backend`
+  - Verifies required Mongoose fields, member defaults, and idempotent seeding.
+  - A validation failure means a model accepts incomplete user, team, activity, or workout data.
+  - A seed failure means demo records or existing-team reconciliation are not preserved correctly.
 - API command: `npm run test:api --prefix octofit-tracker/backend`
+  - Verifies activity and team validation, leaderboard ordering, and workout matching.
+  - A `501` or `400` mismatch means business validation or route behavior is incomplete.
+  - An empty leaderboard or incorrect suggestion means aggregation or recommendation logic is missing.
 - Frontend command: `npm test --prefix octofit-tracker/frontend`
+  - Verifies API rendering and accessible loading, empty, and error states on every route.
+  - Missing data or status elements indicate a presentation or shared API-client implementation gap.
 - Backend build command: `npm run build --prefix octofit-tracker/backend`
+  - Confirms the Express and Mongoose implementation has no TypeScript errors.
 - Frontend build command: `npm run build --prefix octofit-tracker/frontend`
+  - Confirms React, routing, API types, and Vite configuration compile and bundle successfully.
