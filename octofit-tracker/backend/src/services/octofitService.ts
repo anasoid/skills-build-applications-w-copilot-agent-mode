@@ -1,11 +1,47 @@
+import { Types } from 'mongoose';
 import { Activity, Team, User, Workout } from '../models/index.js';
 
 export async function listActivities() {
   return Activity.find().lean();
 }
 
-export async function createActivity(_input: unknown) {
-  throw Object.assign(new Error('Activity validation is not implemented yet'), { status: 501 });
+function isRecord(input: unknown): input is Record<string, unknown> {
+  return typeof input === 'object' && input !== null && !Array.isArray(input);
+}
+
+export async function createActivity(input: unknown) {
+  if (!isRecord(input)) {
+    throw Object.assign(new Error('Activity input must be an object'), { status: 400 });
+  }
+
+  const { userId, teamId, type, minutes } = input;
+  if (typeof userId !== 'string' || !Types.ObjectId.isValid(userId)
+    || typeof teamId !== 'string' || !Types.ObjectId.isValid(teamId)) {
+    throw Object.assign(new Error('userId and teamId must be valid IDs'), { status: 400 });
+  }
+  if (typeof type !== 'string' || !type.trim()) {
+    throw Object.assign(new Error('type is required'), { status: 400 });
+  }
+  if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) {
+    throw Object.assign(new Error('minutes must be a positive number'), { status: 400 });
+  }
+
+  const [user, team] = await Promise.all([
+    User.exists({ _id: userId }),
+    Team.exists({ _id: teamId }),
+  ]);
+  if (!user || !team) {
+    throw Object.assign(new Error('Referenced user or team was not found'), { status: 404 });
+  }
+
+  return Activity.create({
+    user: userId,
+    team: teamId,
+    type: type.trim(),
+    minutes,
+    points: minutes,
+    occurredAt: new Date(),
+  });
 }
 
 export async function listTeams() {
