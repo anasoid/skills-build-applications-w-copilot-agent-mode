@@ -48,16 +48,101 @@ export async function listTeams() {
   return Team.find().lean();
 }
 
-export async function createTeam(_input: unknown) {
-  throw Object.assign(new Error('Team validation is not implemented yet'), { status: 501 });
+export async function createTeam(input: unknown) {
+  if (!isRecord(input)) {
+    throw Object.assign(new Error('Team input must be an object'), { status: 400 });
+  }
+
+  const { name, mascot } = input;
+  if (typeof name !== 'string' || !name.trim()) {
+    throw Object.assign(new Error('name is required'), { status: 400 });
+  }
+  if (typeof mascot !== 'string' || !mascot.trim()) {
+    throw Object.assign(new Error('mascot is required'), { status: 400 });
+  }
+  if (input.members !== undefined && !Array.isArray(input.members)) {
+    throw Object.assign(new Error('members must be an array of user IDs'), { status: 400 });
+  }
+
+  const memberIds: string[] = [];
+  for (const memberId of input.members ?? []) {
+    if (typeof memberId !== 'string' || !Types.ObjectId.isValid(memberId)) {
+      throw Object.assign(new Error('members must contain valid user IDs'), { status: 400 });
+    }
+    memberIds.push(memberId);
+  }
+
+  if (memberIds.length > 0) {
+    const existingMembers = await User.countDocuments({ _id: { $in: memberIds } });
+    if (existingMembers !== new Set(memberIds).size) {
+      throw Object.assign(new Error('One or more members were not found'), { status: 404 });
+    }
+  }
+
+  return Team.create({
+    name: name.trim(),
+    mascot: mascot.trim(),
+    members: memberIds,
+  });
 }
 
 export async function getLeaderboard() {
-  return [];
+  const teams = await Team.aggregate<{ teamName: string; totalPoints: number }>([
+    {
+      $lookup: {
+        from: Activity.collection.name,
+        localField: '_id',
+        foreignField: 'team',
+        as: 'activities',
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        teamName: '$name',
+        totalPoints: { $sum: '$activities.points' },
+      },
+    },
+    { $sort: { totalPoints: -1, teamName: 1 } },
+  ]);
+  return teams.map((team, index) => ({ ...team, rank: index + 1 }));
 }
 
-export async function suggestWorkouts(_userEmail: string) {
-  return Workout.find().limit(1).lean();
+function focusForActivity(type: string) {
+  const normalizedType = type.trim().toLowerCase();
+  if (['run', 'cycle', 'walk', 'swim'].includes(normalizedType)) return 'endurance';
+  return normalizedType;
+}
+
+export async function suggestWorkouts(userEmail: string) {
+  const normalizedEmail = userEmail.trim().toLowerCase();
+  if (!normalizedEmail) {
+    throw Object.assign(new Error('userEmail is required'), { status: 400 });
+  }
+
+  const user = await User.findOne({ email: normalizedEmail }).lean();
+  if (!user) {
+    throw Object.assign(new Error('User was not found'), { status: 404 });
+  }
+
+  const recentActivity = await Activity.findOne({ user: user._id })
+    .sort({ occurredAt: -1, _id: -1 })
+    .lean();
+  const goalFocus = user.fitnessGoal?.trim().toLowerCase();
+  const recentFocus = recentActivity ? focusForActivity(recentActivity.type) : undefined;
+  const focuses = [...new Set([goalFocus, recentFocus].filter((focus): focus is string => Boolean(focus)))];
+
+  for (const focus of focuses) {
+    const workouts = await Workout.find({ focus }).sort({ title: 1 }).lean();
+    if (workouts.length > 0) {
+      const reason = focus === goalFocus
+        ? `Recommended for your ${focus} goal.`
+        : `Recommended based on your recent ${recentActivity?.type} activity.`;
+      return workouts.map((workout) => ({ ...workout, reason }));
+    }
+  }
+
+  return [];
 }
 
 export { User };
